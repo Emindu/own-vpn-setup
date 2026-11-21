@@ -7,6 +7,54 @@ Your device ──encrypted UDP 51820──▶ GCP VM (WireGuard + NAT) ──�
                                      websites see the VM's IP
 ```
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph clients["Your devices"]
+        phone["📱 Phone<br/>10.8.0.2"]
+        laptop["💻 Laptop<br/>10.8.0.3"]
+        pc["🐧 Linux / WSL<br/>10.8.0.4"]
+    end
+
+    subgraph gcp["Google Cloud project"]
+        ip["Static IP<br/>(Standard tier)"]
+        fw{{"Firewall<br/>allow UDP 51820<br/>tag: wireguard"}}
+        subgraph vm["e2-micro VM · Debian 12"]
+            wg["wg0 (WireGuard)<br/>10.8.0.1/24 :51820"]
+            nat["iptables NAT<br/>MASQUERADE → ens4"]
+            helper["wg-add-client<br/>(profiles + QR)"]
+        end
+    end
+
+    web(("🌐 Internet"))
+
+    phone & laptop & pc == "encrypted tunnel<br/>UDP 51820" ==> ip
+    ip --> fw --> wg
+    wg -- "decrypted traffic" --> nat
+    nat -- "source = static IP" --> web
+    helper -. "adds [Peer]" .-> wg
+```
+
+**How a request flows**
+1. A device sends traffic into its WireGuard tunnel (`AllowedIPs = 0.0.0.0/0`, so everything goes through the tunnel).
+2. The packet reaches the VM's static IP on UDP 51820, which the firewall rule allows.
+3. `wg0` decrypts it and checks the device's key against its `[Peer]` entry.
+4. iptables NAT rewrites the source address to the VM's IP and sends the packet to the internet.
+5. Replies come back the same way, encrypted, to the device.
+
+**What the scripts do**
+
+```mermaid
+flowchart TB
+    D["deploy.sh"] --> A["Reserve static IP"] --> F["Create firewall rule"] --> V["Create VM<br/>+ startup script"]
+    V --> S["server-setup.sh on VM:<br/>install WireGuard, enable IP forwarding,<br/>NAT, wg-add-client"]
+    S --> C["Download profiles → clients/*.conf"]
+    AC["add-client.sh"] --> C
+    CI["change-ip.sh"] -->|"new IP, release old,<br/>update Endpoint in profiles"| C
+    X["destroy.sh"] -->|"delete VM, IPs, firewall"| Z["Nothing billed"]
+```
+
 ## Requirements
 - A Google Cloud account with billing enabled (the $300 free trial is enough)
 - [gcloud CLI](https://cloud.google.com/sdk/docs/install) on Linux, macOS or WSL
