@@ -55,6 +55,37 @@ flowchart TB
     X["destroy.sh"] -->|"delete VM, IPs, firewall"| Z["Nothing billed"]
 ```
 
+## VPN types, and which one this is
+
+### By purpose
+| Type | What it does | Example |
+|---|---|---|
+| **Remote-access VPN** | One device connects to a server and uses its network or internet connection | Work-from-home VPN, **this repo** |
+| **Site-to-site VPN** | Joins two whole networks, such as two offices or an office and the cloud, so they act as one | GCP Cloud VPN, AWS Site-to-Site VPN |
+| **Commercial privacy VPN** | A paid service that lends you its servers' IPs | NordVPN, ProtonVPN, Mullvad |
+| **Mesh / overlay VPN** | Every device connects directly to every other device, with no central server for traffic | Tailscale, ZeroTier, Nebula |
+| **Self-hosted VPN** | You run the server yourself, so only you control it and its logs | **This repo**, Algo, PiVPN |
+
+### By protocol
+| Protocol | Transport | Notes |
+|---|---|---|
+| **WireGuard** | UDP | Modern, very fast, small codebase, current cryptography. **Used here.** |
+| OpenVPN | UDP or TCP | Mature and flexible. TCP mode gets through strict firewalls but is slower. |
+| IPsec / IKEv2 | UDP 500/4500 | Built into most operating systems and routers, common for site-to-site. Reconnects well on phones. |
+| SSL/TLS VPN | TCP 443 | Looks like HTTPS, so it rarely gets blocked. Mostly corporate products (Cisco AnyConnect, OpenConnect). |
+| L2TP/IPsec | UDP | Older and slower. Sometimes blocked because of its fixed ports. |
+| SSTP | TCP 443 | Mainly a Windows protocol. |
+| PPTP | TCP 1723 + GRE | **Broken encryption, do not use.** |
+
+### What this repo sets up
+- **Remote-access, self-hosted VPN:** your devices connect to *your own* GCP server. No third-party provider sees your traffic.
+- **Hub-and-spoke:** one server (`10.8.0.1`) in the middle, with each device getting its own address (`10.8.0.2`, `.3`, …).
+- **Full tunnel:** `AllowedIPs = 0.0.0.0/0`, so *all* IPv4 traffic goes through the VPN and websites see the server's IP. Changing this to `10.8.0.0/24` would make it a **split tunnel**, where only traffic for the VPN network goes through it.
+- **WireGuard over UDP 51820:** WireGuard only supports UDP. This avoids the slowdown of running TCP inside TCP, keeps delay low, survives switching between Wi-Fi and mobile data, and lets the port stay silent to anyone without a valid key.
+- **Authentication:** each device has its own key pair plus a preshared key. There are no passwords.
+
+**What it is not:** it doesn't make you anonymous (Google knows the server is yours), and it doesn't connect your devices to each other or join networks together. It also won't get through networks that block UDP. For those, move it to port 443 or wrap it in TCP (`udp2raw`, `wstunnel`).
+
 ## Requirements
 - A Google Cloud account with billing enabled (the $300 free trial is enough)
 - [gcloud CLI](https://cloud.google.com/sdk/docs/install) on Linux, macOS or WSL
